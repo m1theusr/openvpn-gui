@@ -27,7 +27,7 @@ mod imp {
         #[template_child]
         pub status_page: TemplateChild<adw::StatusPage>,
         #[template_child]
-        pub profiles_list: TemplateChild<gtk::ListBox>,
+        pub profiles_box: TemplateChild<gtk::Box>,
         #[template_child]
         pub content_box: TemplateChild<gtk::Box>,
         pub profiles: RefCell<Vec<VpnProfile>>,
@@ -120,19 +120,19 @@ impl OpenvpnGuiWindow {
         let profiles = storage::load_profiles();
         let imp = self.imp();
 
-        let list = &*imp.profiles_list;
-        while let Some(child) = list.first_child() {
-            list.remove(&child);
+        let pbox = &*imp.profiles_box;
+        while let Some(child) = pbox.first_child() {
+            pbox.remove(&child);
         }
         *imp.row_count.borrow_mut() = 0;
 
         if profiles.is_empty() {
             imp.status_page.set_visible(true);
-            imp.profiles_list.set_visible(false);
+            imp.profiles_box.set_visible(false);
             imp.status_banner.set_visible(false);
         } else {
             imp.status_page.set_visible(false);
-            imp.profiles_list.set_visible(true);
+            imp.profiles_box.set_visible(true);
             imp.status_banner.set_visible(true);
 
             let has_connected = profiles.iter().any(|p| crate::vpn::manager::is_connected(&p.name));
@@ -143,8 +143,8 @@ impl OpenvpnGuiWindow {
             }
 
             for profile in &profiles {
-                let row = create_profile_row(profile, self);
-                imp.profiles_list.append(&row);
+                let section = create_profile_row(profile, self);
+                imp.profiles_box.append(&section);
                 *imp.row_count.borrow_mut() += 1;
             }
         }
@@ -155,11 +155,11 @@ impl OpenvpnGuiWindow {
     pub fn add_profile(&self, profile: VpnProfile) {
         let imp = self.imp();
         imp.status_page.set_visible(false);
-        imp.profiles_list.set_visible(true);
+        imp.profiles_box.set_visible(true);
         imp.status_banner.set_visible(true);
 
-        let row = create_profile_row(&profile, self);
-        imp.profiles_list.append(&row);
+        let section = create_profile_row(&profile, self);
+        imp.profiles_box.append(&section);
         *imp.row_count.borrow_mut() += 1;
         imp.profiles.borrow_mut().push(profile);
 

@@ -4,6 +4,7 @@ use std::sync::mpsc;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayCommand {
     ShowWindow,
+    ShowPanel,
     Quit,
 }
 
@@ -40,8 +41,20 @@ impl ksni::Tray for VpnTray {
         }
     }
 
+    fn activate(&mut self, _x: i32, _y: i32) {
+        let _ = self.tx.send(TrayCommand::ShowPanel);
+    }
+
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
         vec![
+            ksni::menu::StandardItem {
+                label: "Status Panel".into(),
+                activate: Box::new(|tray: &mut Self| {
+                    let _ = tray.tx.send(TrayCommand::ShowPanel);
+                }),
+                ..Default::default()
+            }
+            .into(),
             ksni::menu::StandardItem {
                 label: "Open Window".into(),
                 activate: Box::new(|tray: &mut Self| {

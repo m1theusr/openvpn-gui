@@ -28,10 +28,13 @@ mod imp {
     impl ApplicationImpl for OpenvpnGuiApp {
         fn activate(&self) {
             let app = self.obj();
-            if let Some(window) = app.active_window() {
-                window.set_visible(true);
-                window.present();
-                return;
+            for window in app.windows() {
+                if let Some(vpn_win) = window.downcast_ref::<super::OpenvpnGuiWindow>() {
+                    vpn_win.load_profiles();
+                    vpn_win.set_visible(true);
+                    vpn_win.present();
+                    return;
+                }
             }
             let window = OpenvpnGuiWindow::new(&app.clone().upcast::<adw::Application>());
             window.present();

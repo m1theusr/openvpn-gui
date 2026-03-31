@@ -84,13 +84,13 @@
                     </child>
 
                     <child>
-                      <object class="GtkListBox" id="profiles_list">
-                        <property name="selection-mode">none</property>
+                      <object class="GtkBox" id="profiles_box">
+                        <property name="orientation">vertical</property>
+                        <property name="spacing">8</property>
                         <property name="visible">false</property>
                         <property name="margin-top">4</property>
-                        <style>
-                          <class name="boxed-list"/>
-                        </style>
+                        <property name="margin-start">8</property>
+                        <property name="margin-end">8</property>
                       </object>
                     </child>
 

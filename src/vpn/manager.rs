@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::Command;
@@ -132,6 +132,42 @@ pub fn is_connected(profile_name: &str) -> bool {
     };
     let proc_path = format!("/proc/{}", pid_str);
     std::path::Path::new(&proc_path).exists()
+}
+
+pub fn read_stats(profile_name: &str) -> Option<(u64, u64)> {
+    let port_file = mgmt_port_path(profile_name);
+    let port_str = fs::read_to_string(&port_file).ok()?;
+    let port: u16 = port_str.trim().parse().ok()?;
+
+    let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().ok()?;
+    let mut stream = TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(300)).ok()?;
+    stream.set_read_timeout(Some(std::time::Duration::from_millis(300))).ok();
+
+    let mut buf = [0u8; 4096];
+    let _ = stream.read(&mut buf);
+
+    stream.write_all(b"load-stats\n").ok()?;
+    stream.flush().ok()?;
+
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    let n = stream.read(&mut buf).ok()?;
+    let response = String::from_utf8_lossy(&buf[..n]);
+
+    for line in response.lines() {
+        if line.starts_with("SUCCESS:") {
+            let bytes_in = line.split(',')
+                .find(|s| s.contains("bytesin="))
+                .and_then(|s| s.split('=').last())
+                .and_then(|v| v.trim().parse::<u64>().ok())?;
+            let bytes_out = line.split(',')
+                .find(|s| s.contains("bytesout="))
+                .and_then(|s| s.split('=').last())
+                .and_then(|v| v.trim().parse::<u64>().ok())?;
+            return Some((bytes_in, bytes_out));
+        }
+    }
+    None
 }
 
 #[allow(dead_code)]
