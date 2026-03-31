@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/com/github/m1theusr/OpenVPNGUI">
+    <file preprocess="xml-stripblanks">window.ui</file>
+    <file>openvpn-logo.svg</file>
+  </gresource>
+</gresources>
