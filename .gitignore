@@ -6,3 +6,7 @@
 .vscode/
 *.log
 /tmp/
+/dist
+*.deb
+*.rpm
+*.zip
