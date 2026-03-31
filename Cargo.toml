@@ -39,6 +39,11 @@ source = "data/resources/openvpn-logo.svg"
 dest = "/usr/share/icons/hicolor/scalable/apps/openvpn-gui.svg"
 mode = "0644"
 
+[[package.metadata.generate-rpm.assets]]
+source = "data/com.github.m1theusr.OpenVPNGUI.desktop"
+dest = "/usr/share/applications/com.github.m1theusr.OpenVPNGUI.desktop"
+mode = "0644"
+
 [package.metadata.deb]
 maintainer = "m1theusr <m1theusr@github.com>"
 copyright = "2026, m1theusr"
@@ -49,5 +54,6 @@ extended-description = "Cliente OpenVPN gráfico moderno com GTK4 e Libadwaita p
 assets = [
     ["target/release/openvpn-gui", "usr/bin/", "755"],
     ["data/resources/openvpn-logo.svg", "usr/share/icons/hicolor/scalable/apps/openvpn-gui.svg", "644"],
+    ["data/com.github.m1theusr.OpenVPNGUI.desktop", "usr/share/applications/com.github.m1theusr.OpenVPNGUI.desktop", "644"],
     ["README.md", "usr/share/doc/openvpn-gui/README.md", "644"],
 ]

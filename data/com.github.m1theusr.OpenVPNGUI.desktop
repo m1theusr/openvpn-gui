@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=OpenVPN GUI
+Comment=Cliente OpenVPN gráfico para GNOME
+Exec=openvpn-gui
+Icon=openvpn-gui
+Terminal=false
+Type=Application
+Categories=Network;VPN;GTK;
+Keywords=vpn;openvpn;network;rede;
+StartupNotify=true
