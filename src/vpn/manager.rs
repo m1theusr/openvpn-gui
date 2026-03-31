@@ -170,6 +170,25 @@ pub fn read_stats(profile_name: &str) -> Option<(u64, u64)> {
     None
 }
 
+pub fn disconnect_all() {
+    let dir = runtime_dir();
+    let entries = match fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("pid") {
+            if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                if is_connected(name) {
+                    log::info!("Disconnecting VPN on quit: {}", name);
+                    let _ = disconnect(name);
+                }
+            }
+        }
+    }
+}
+
 #[allow(dead_code)]
 pub fn read_log(profile_name: &str) -> String {
     let log_file = log_path(profile_name);

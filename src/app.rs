@@ -26,6 +26,11 @@ mod imp {
     }
 
     impl ApplicationImpl for OpenvpnGuiApp {
+        fn shutdown(&self) {
+            crate::vpn::manager::disconnect_all();
+            self.parent_shutdown();
+        }
+
         fn activate(&self) {
             let app = self.obj();
             for window in app.windows() {
