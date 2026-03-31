@@ -1,7 +1,7 @@
 [package]
 name = "openvpn-gui"
-version = "0.1.0"
-edition = "2021"
+version = "0.2.0"
+edition = "2024"
 authors = ["m1theusr"]
 description = "OpenVPN GUI client for GNOME"
 
@@ -21,13 +21,19 @@ dirs = "6"
 [build-dependencies]
 glib-build-tools = "0.20"
 
+# ─── RPM ───────────────────────────────────────────────
 [package.metadata.generate-rpm]
 name = "openvpn-gui"
-version = "0.1.0"
+version = "0.2.0"
 license = "GPL-3.0"
 summary = "Cliente OpenVPN gráfico para GNOME"
 description = "Cliente OpenVPN moderno com GTK4 e Libadwaita para gerenciar conexões VPN no Linux."
-requires = { gtk4 = ">= 4.12", libadwaita = ">= 1.4", openvpn = "*" }
+
+# ⚠️ requires DEVE vir ANTES dos [[assets]]
+[package.metadata.generate-rpm.requires]
+gtk4 = ">= 4.12"
+libadwaita = ">= 1.4"
+openvpn = "*"
 
 [[package.metadata.generate-rpm.assets]]
 source = "target/release/openvpn-gui"
@@ -44,6 +50,7 @@ source = "data/com.github.m1theusr.OpenVPNGUI.desktop"
 dest = "/usr/share/applications/com.github.m1theusr.OpenVPNGUI.desktop"
 mode = "0644"
 
+# ─── DEB ───────────────────────────────────────────────
 [package.metadata.deb]
 maintainer = "m1theusr <m1theusr@github.com>"
 copyright = "2026, m1theusr"
