@@ -24,13 +24,14 @@ jobs:
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Build release
-        run: cargo build --release
+      - name: Instalar cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
 
       - name: Instalar cargo-deb e cargo-generate-rpm
-        run: |
-          cargo install cargo-deb
-          cargo install cargo-generate-rpm
+        run: cargo binstall -y cargo-deb cargo-generate-rpm
+
+      - name: Build release
+        run: cargo build --release
 
       - name: Gerar .deb
         run: cargo deb
@@ -50,5 +51,3 @@ jobs:
             target/debian/*.deb
             target/generate-rpm/*.rpm
             openvpn-gui-linux-x86_64.zip
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
