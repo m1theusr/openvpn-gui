@@ -1,6 +1,6 @@
 [package]
 name = "openvpn-gui"
-version = "0.4.2"
+version = "0.4.1"
 edition = "2024"
 authors = ["m1theusr"]
 description = "OpenVPN GUI client for GNOME"
@@ -24,7 +24,7 @@ glib-build-tools = "0.20"
 # ─── RPM ───────────────────────────────────────────────
 [package.metadata.generate-rpm]
 name = "openvpn-gui"
-version = "0.4.2"
+version = "0.4.1"
 license = "GPL-3.0"
 summary = "Cliente OpenVPN gráfico para GNOME"
 description = "Cliente OpenVPN moderno com GTK4 e Libadwaita para gerenciar conexões VPN no Linux."
