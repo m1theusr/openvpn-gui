@@ -4,8 +4,8 @@
   <requires lib="libadwaita" version="1.4"/>
   <template class="OpenvpnGuiWindow" parent="AdwApplicationWindow">
     <property name="title" translatable="yes">OpenVPN Connect</property>
-    <property name="default-width">360</property>
-    <property name="default-height">580</property>
+    <property name="default-width">380</property>
+    <property name="default-height">640</property>
     <property name="resizable">false</property>
     <child>
       <object class="AdwToolbarView">

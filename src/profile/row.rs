@@ -2,7 +2,7 @@ use adw::prelude::*;
 use gtk::{gio, glib};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::profile::auth::{show_auth_dialog, show_save_credentials_dialog, AuthCredentials};
 use crate::profile::model::VpnProfile;
@@ -17,6 +17,7 @@ struct StatsState {
     last_bytes_out: u64,
     download_speeds: Vec<f64>,
     upload_speeds: Vec<f64>,
+    connected_at: Option<Instant>,
 }
 
 impl Default for StatsState {
@@ -26,7 +27,19 @@ impl Default for StatsState {
             last_bytes_out: 0,
             download_speeds: Vec::with_capacity(MAX_SAMPLES),
             upload_speeds: Vec::with_capacity(MAX_SAMPLES),
+            connected_at: None,
         }
+    }
+}
+
+fn format_duration(secs: u64) -> String {
+    let h = secs / 3600;
+    let m = (secs % 3600) / 60;
+    let s = secs % 60;
+    if h > 0 {
+        format!("{:02}h {:02}m {:02}s", h, m, s)
+    } else {
+        format!("{:02}m {:02}s", m, s)
     }
 }
 
@@ -52,7 +65,7 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
-fn build_stats_section() -> (gtk::Box, gtk::Label, gtk::Label, gtk::Label, gtk::Label, gtk::DrawingArea) {
+fn build_stats_section() -> (gtk::Box, gtk::Label, gtk::Label, gtk::Label, gtk::Label, gtk::DrawingArea, gtk::Label, gtk::Label, gtk::Label) {
     let stats_box = gtk::Box::new(gtk::Orientation::Vertical, 6);
     stats_box.set_margin_start(12);
     stats_box.set_margin_end(12);
@@ -116,7 +129,44 @@ fn build_stats_section() -> (gtk::Box, gtk::Label, gtk::Label, gtk::Label, gtk::
     bytes_row.append(&bo_box);
     stats_box.append(&bytes_row);
 
-    (stats_box, dl_speed, ul_speed, bytes_in_val, bytes_out_val, drawing_area)
+    let sep = gtk::Separator::new(gtk::Orientation::Horizontal);
+    sep.set_margin_top(4);
+    sep.set_margin_bottom(4);
+    stats_box.append(&sep);
+
+    let ip_row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+
+    let vpn_ip_box = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    let vpn_ip_val = gtk::Label::builder().label("—").halign(gtk::Align::Start).build();
+    vpn_ip_val.add_css_class("caption-heading");
+    let vpn_ip_lbl = gtk::Label::builder().label("VPN IP").halign(gtk::Align::Start).build();
+    vpn_ip_lbl.add_css_class("caption");
+    vpn_ip_lbl.add_css_class("dim-label");
+    vpn_ip_box.append(&vpn_ip_val);
+    vpn_ip_box.append(&vpn_ip_lbl);
+
+    let srv_ip_box = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    srv_ip_box.set_halign(gtk::Align::End);
+    srv_ip_box.set_hexpand(true);
+    let srv_ip_val = gtk::Label::builder().label("—").halign(gtk::Align::End).build();
+    srv_ip_val.add_css_class("caption-heading");
+    let srv_ip_lbl = gtk::Label::builder().label("SERVER IP").halign(gtk::Align::End).build();
+    srv_ip_lbl.add_css_class("caption");
+    srv_ip_lbl.add_css_class("dim-label");
+    srv_ip_box.append(&srv_ip_val);
+    srv_ip_box.append(&srv_ip_lbl);
+
+    ip_row.append(&vpn_ip_box);
+    ip_row.append(&srv_ip_box);
+    stats_box.append(&ip_row);
+
+    let dur_lbl = gtk::Label::builder().label("—").halign(gtk::Align::Start).build();
+    dur_lbl.add_css_class("caption");
+    dur_lbl.add_css_class("dim-label");
+    dur_lbl.set_margin_top(2);
+    stats_box.append(&dur_lbl);
+
+    (stats_box, dl_speed, ul_speed, bytes_in_val, bytes_out_val, drawing_area, vpn_ip_val, srv_ip_val, dur_lbl)
 }
 
 fn start_stats_timer(
@@ -126,6 +176,9 @@ fn start_stats_timer(
     bi_lbl: gtk::Label,
     bo_lbl: gtk::Label,
     da: gtk::DrawingArea,
+    vpn_ip_lbl: gtk::Label,
+    srv_ip_lbl: gtk::Label,
+    dur_lbl: gtk::Label,
     state: Rc<RefCell<StatsState>>,
     active: Rc<Cell<bool>>,
 ) {
@@ -144,15 +197,22 @@ fn start_stats_timer(
         let ul2 = ul_lbl.clone();
         let bi2 = bi_lbl.clone();
         let bo2 = bo_lbl.clone();
+        let vip = vpn_ip_lbl.clone();
+        let sip = srv_ip_lbl.clone();
+        let dur = dur_lbl.clone();
         let st = state.clone();
 
         glib::spawn_future_local(async move {
-            let result = gio::spawn_blocking(move || manager::read_stats(&pname)).await;
-            if let Ok(Some((bytes_in, bytes_out))) = result {
+            let result = gio::spawn_blocking(move || manager::read_stats_and_info(&pname)).await;
+            if let Ok(Some((bytes_in, bytes_out, vpn_ip, server_ip))) = result {
                 let mut s = st.borrow_mut();
+                if s.connected_at.is_none() {
+                    s.connected_at = Some(Instant::now());
+                }
                 if s.last_bytes_in > 0 {
-                    let dl_speed = (bytes_in.saturating_sub(s.last_bytes_in)) as f64 / (REFRESH_MS as f64 / 1000.0);
-                    let ul_speed = (bytes_out.saturating_sub(s.last_bytes_out)) as f64 / (REFRESH_MS as f64 / 1000.0);
+                    let dt = REFRESH_MS as f64 / 1000.0;
+                    let dl_speed = bytes_in.saturating_sub(s.last_bytes_in) as f64 / dt;
+                    let ul_speed = bytes_out.saturating_sub(s.last_bytes_out) as f64 / dt;
                     s.download_speeds.push(dl_speed);
                     s.upload_speeds.push(ul_speed);
                     if s.download_speeds.len() > MAX_SAMPLES {
@@ -166,6 +226,11 @@ fn start_stats_timer(
                 s.last_bytes_out = bytes_out;
                 bi2.set_label(&format_bytes(bytes_in));
                 bo2.set_label(&format_bytes(bytes_out));
+                if !vpn_ip.is_empty() { vip.set_label(&vpn_ip); }
+                if !server_ip.is_empty() { sip.set_label(&server_ip); }
+                if let Some(t) = s.connected_at {
+                    dur.set_label(&format!("Connected for {}", format_duration(t.elapsed().as_secs())));
+                }
                 da2.queue_draw();
             }
         });
@@ -259,7 +324,7 @@ pub fn create_profile_row(profile: &VpnProfile, window: &OpenvpnGuiWindow) -> gt
         .reveal_child(false)
         .build();
 
-    let (stats_box, dl_lbl, ul_lbl, bi_lbl, bo_lbl, drawing_area) = build_stats_section();
+    let (stats_box, dl_lbl, ul_lbl, bi_lbl, bo_lbl, drawing_area, vpn_ip_lbl, srv_ip_lbl, dur_lbl) = build_stats_section();
     let stats_state: Rc<RefCell<StatsState>> = Rc::new(RefCell::new(StatsState::default()));
     let stats_active: Rc<Cell<bool>> = Rc::new(Cell::new(false));
 
@@ -284,7 +349,9 @@ pub fn create_profile_row(profile: &VpnProfile, window: &OpenvpnGuiWindow) -> gt
         start_stats_timer(
             profile.name.clone(),
             dl_lbl.clone(), ul_lbl.clone(), bi_lbl.clone(), bo_lbl.clone(),
-            drawing_area.clone(), stats_state.clone(), stats_active.clone(),
+            drawing_area.clone(),
+            vpn_ip_lbl.clone(), srv_ip_lbl.clone(), dur_lbl.clone(),
+            stats_state.clone(), stats_active.clone(),
         );
     }
 
@@ -303,6 +370,9 @@ pub fn create_profile_row(profile: &VpnProfile, window: &OpenvpnGuiWindow) -> gt
     let bi_c = bi_lbl.clone();
     let bo_c = bo_lbl.clone();
     let da_c = drawing_area.clone();
+    let vip_c = vpn_ip_lbl.clone();
+    let sip_c = srv_ip_lbl.clone();
+    let dur_c = dur_lbl.clone();
 
     toggle.connect_state_set(move |switch, active| {
         if skip.get() {
@@ -330,6 +400,9 @@ pub fn create_profile_row(profile: &VpnProfile, window: &OpenvpnGuiWindow) -> gt
             let bi2 = bi_c.clone();
             let bo2 = bo_c.clone();
             let da2 = da_c.clone();
+            let vip2 = vip_c.clone();
+            let sip2 = sip_c.clone();
+            let dur2 = dur_c.clone();
 
             let pname_for_dialog = pname.clone();
             let do_connect = move |creds: AuthCredentials| {
@@ -351,6 +424,9 @@ pub fn create_profile_row(profile: &VpnProfile, window: &OpenvpnGuiWindow) -> gt
                 let bi3 = bi2.clone();
                 let bo3 = bo2.clone();
                 let da3 = da2.clone();
+                let vip3 = vip2.clone();
+                let sip3 = sip2.clone();
+                let dur3 = dur2.clone();
 
                 win_ref.update_status_banner("CONNECTING...", "");
 
@@ -369,7 +445,7 @@ pub fn create_profile_row(profile: &VpnProfile, window: &OpenvpnGuiWindow) -> gt
                             rev3.set_reveal_child(true);
                             sa3.set(true);
                             *ss3.borrow_mut() = StatsState::default();
-                            start_stats_timer(pname2.clone(), dl3, ul3, bi3, bo3, da3, ss3, sa3);
+                            start_stats_timer(pname2.clone(), dl3, ul3, bi3, bo3, da3, vip3, sip3, dur3, ss3, sa3);
 
                             if !had_saved {
                                 let gtk_win2: gtk::Window = win2.clone().upcast();
@@ -467,9 +543,28 @@ pub fn create_profile_row(profile: &VpnProfile, window: &OpenvpnGuiWindow) -> gt
 
     let profile_name_del = profile.name.clone();
     let weak_window_del = window.downgrade();
-    delete_button.connect_clicked(move |_| {
+    delete_button.connect_clicked(move |btn| {
         let Some(window) = weak_window_del.upgrade() else { return };
-        window.remove_profile(&profile_name_del);
+        let gtk_win: gtk::Window = window.clone().upcast();
+        let pname = profile_name_del.clone();
+        let win_ref = window.clone();
+        let dialog = adw::MessageDialog::new(
+            Some(&gtk_win),
+            Some("Remove Profile"),
+            Some(&format!("Remove \"{}\"? This cannot be undone.", pname)),
+        );
+        dialog.add_response("cancel", "Cancel");
+        dialog.add_response("remove", "Remove");
+        dialog.set_response_appearance("remove", adw::ResponseAppearance::Destructive);
+        dialog.set_default_response(Some("cancel"));
+        dialog.set_close_response("cancel");
+        let _ = btn;
+        dialog.connect_response(None, move |_, response| {
+            if response == "remove" {
+                win_ref.remove_profile(&pname);
+            }
+        });
+        dialog.present();
     });
 
     section

@@ -2,7 +2,7 @@ use adw::prelude::*;
 use gtk::{gio, glib};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::profile::auth::{show_auth_dialog, AuthCredentials};
 use crate::profile::model::VpnProfile;
@@ -20,6 +20,7 @@ struct PanelState {
     upload_speeds: Vec<f64>,
     total_bytes_in: u64,
     total_bytes_out: u64,
+    connected_at: Option<Instant>,
 }
 
 impl Default for PanelState {
@@ -31,7 +32,19 @@ impl Default for PanelState {
             upload_speeds: Vec::with_capacity(MAX_SAMPLES),
             total_bytes_in: 0,
             total_bytes_out: 0,
+            connected_at: None,
         }
+    }
+}
+
+fn format_duration(secs: u64) -> String {
+    let h = secs / 3600;
+    let m = (secs % 3600) / 60;
+    let s = secs % 60;
+    if h > 0 {
+        format!("{:02}h {:02}m {:02}s", h, m, s)
+    } else {
+        format!("{:02}m {:02}s", m, s)
     }
 }
 
@@ -67,7 +80,7 @@ pub fn create_panel(app: &adw::Application) -> adw::Window {
     let window = adw::Window::builder()
         .title("OpenVPN Connect")
         .default_width(320)
-        .default_height(520)
+        .default_height(600)
         .resizable(false)
         .application(app)
         .build();
@@ -206,6 +219,41 @@ pub fn create_panel(app: &adw::Application) -> adw::Window {
     bytes_row.append(&bo_box);
     stats_box.append(&bytes_row);
 
+    let ip_sep = gtk::Separator::new(gtk::Orientation::Horizontal);
+    ip_sep.set_margin_top(4);
+    ip_sep.set_margin_bottom(4);
+    stats_box.append(&ip_sep);
+
+    let ip_row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    let vpn_ip_box = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    let vpn_ip_val = gtk::Label::builder().label("—").halign(gtk::Align::Start).build();
+    vpn_ip_val.add_css_class("caption-heading");
+    let vpn_ip_lbl = gtk::Label::builder().label("VPN IP").halign(gtk::Align::Start).build();
+    vpn_ip_lbl.add_css_class("caption");
+    vpn_ip_lbl.add_css_class("dim-label");
+    vpn_ip_box.append(&vpn_ip_val);
+    vpn_ip_box.append(&vpn_ip_lbl);
+
+    let srv_ip_box = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    srv_ip_box.set_halign(gtk::Align::End);
+    srv_ip_box.set_hexpand(true);
+    let srv_ip_val = gtk::Label::builder().label("—").halign(gtk::Align::End).build();
+    srv_ip_val.add_css_class("caption-heading");
+    let srv_ip_lbl2 = gtk::Label::builder().label("SERVER IP").halign(gtk::Align::End).build();
+    srv_ip_lbl2.add_css_class("caption");
+    srv_ip_lbl2.add_css_class("dim-label");
+    srv_ip_box.append(&srv_ip_val);
+    srv_ip_box.append(&srv_ip_lbl2);
+    ip_row.append(&vpn_ip_box);
+    ip_row.append(&srv_ip_box);
+    stats_box.append(&ip_row);
+
+    let dur_lbl = gtk::Label::builder().label("—").halign(gtk::Align::Start).build();
+    dur_lbl.add_css_class("caption");
+    dur_lbl.add_css_class("dim-label");
+    dur_lbl.set_margin_top(2);
+    stats_box.append(&dur_lbl);
+
     if connected_profile.is_some() {
         content.append(&stats_box);
     }
@@ -225,6 +273,16 @@ pub fn create_panel(app: &adw::Application) -> adw::Window {
 
     let status_lbl_ref = status_label.clone();
     let stats_box_ref = stats_box.clone();
+    let timer_gen: Rc<Cell<u64>> = Rc::new(Cell::new(0));
+    let dl_lbl_ref = dl_speed_label.clone();
+    let ul_lbl_ref = ul_speed_label.clone();
+    let bi_lbl_ref = bytes_in_val.clone();
+    let bo_lbl_ref = bytes_out_val.clone();
+    let vip_lbl_ref = vpn_ip_val.clone();
+    let sip_lbl_ref = srv_ip_val.clone();
+    let dur_lbl_ref = dur_lbl.clone();
+    let state_ref = state.clone();
+    let da_ref = drawing_area.clone();
 
     for profile in profiles.iter().take(MAX_PROFILES) {
         let row = adw::ActionRow::builder()
@@ -254,6 +312,16 @@ pub fn create_panel(app: &adw::Application) -> adw::Window {
         let skip = skip_signal.clone();
         let sl = status_lbl_ref.clone();
         let sb = stats_box_ref.clone();
+        let dl_h = dl_lbl_ref.clone();
+        let ul_h = ul_lbl_ref.clone();
+        let bi_h = bi_lbl_ref.clone();
+        let bo_h = bo_lbl_ref.clone();
+        let vip_h = vip_lbl_ref.clone();
+        let sip_h = sip_lbl_ref.clone();
+        let dur_h = dur_lbl_ref.clone();
+        let st_h = state_ref.clone();
+        let da_h = da_ref.clone();
+        let tg_h = timer_gen.clone();
 
         toggle.connect_state_set(move |switch, active| {
             if skip.get() {
@@ -271,13 +339,34 @@ pub fn create_panel(app: &adw::Application) -> adw::Window {
                 let sk = skip.clone();
                 let sl = sl.clone();
                 let sb = sb.clone();
+                let dl = dl_h.clone();
+                let ul = ul_h.clone();
+                let bi = bi_h.clone();
+                let bo = bo_h.clone();
+                let vip = vip_h.clone();
+                let sip = sip_h.clone();
+                let dur = dur_h.clone();
+                let st = st_h.clone();
+                let da = da_h.clone();
+                let tg = tg_h.clone();
 
                 let pname_for_dialog = pname.clone();
                 let do_connect = move |creds: AuthCredentials| {
+                    let pname2 = pname.clone();
                     let sw2 = sw.clone();
                     let sk2 = sk.clone();
                     let sl2 = sl.clone();
                     let sb2 = sb.clone();
+                    let dl2 = dl.clone();
+                    let ul2 = ul.clone();
+                    let bi2 = bi.clone();
+                    let bo2 = bo.clone();
+                    let vip2 = vip.clone();
+                    let sip2 = sip.clone();
+                    let dur2 = dur.clone();
+                    let st2 = st.clone();
+                    let da2 = da.clone();
+                    let tg2 = tg.clone();
                     sl.set_label("CONNECTING...");
                     sl.remove_css_class("dim-label");
                     sl.remove_css_class("success");
@@ -298,6 +387,10 @@ pub fn create_panel(app: &adw::Application) -> adw::Window {
                                 sl2.remove_css_class("dim-label");
                                 sl2.add_css_class("success");
                                 sb2.set_visible(true);
+                                *st2.borrow_mut() = PanelState::default();
+                                tg2.set(tg2.get() + 1);
+                                let my_gen = tg2.get();
+                                start_panel_timer(pname2, dl2, ul2, bi2, bo2, da2, vip2, sip2, dur2, st2, tg2, my_gen);
                             }
                             Ok(Err(e)) => {
                                 log::error!("Panel connect failed: {}", e);
@@ -349,6 +442,10 @@ pub fn create_panel(app: &adw::Application) -> adw::Window {
                 let sk = skip.clone();
                 let sl = sl.clone();
                 let sb = sb.clone();
+                let vip = vip_h.clone();
+                let sip = sip_h.clone();
+                let dur = dur_h.clone();
+                let tg = tg_h.clone();
 
                 glib::spawn_future_local(async move {
                     let pname2 = pname.clone();
@@ -366,6 +463,10 @@ pub fn create_panel(app: &adw::Application) -> adw::Window {
                             sl.remove_css_class("warning");
                             sl.add_css_class("dim-label");
                             sb.set_visible(false);
+                            tg.set(tg.get() + 1);
+                            vip.set_label("—");
+                            sip.set_label("—");
+                            dur.set_label("—");
                         }
                         Ok(Err(e)) => {
                             log::error!("Panel disconnect failed: {}", e);
@@ -418,67 +519,90 @@ pub fn create_panel(app: &adw::Application) -> adw::Window {
     window.set_content(Some(&toolbar));
 
     if let Some(ref cp) = connected_profile {
-        let cp_name = cp.name.clone();
-        let da = drawing_area.clone();
-        let dl_lbl = dl_speed_label.clone();
-        let ul_lbl = ul_speed_label.clone();
-        let bi_lbl = bytes_in_val.clone();
-        let bo_lbl = bytes_out_val.clone();
-        let state_timer = state.clone();
-
-        let da_weak = da.downgrade();
-        glib::timeout_add_local(Duration::from_millis(REFRESH_MS as u64), move || {
-            let Some(da) = da_weak.upgrade() else {
-                return glib::ControlFlow::Break;
-            };
-
-            let cp_name2 = cp_name.clone();
-            let da2 = da.clone();
-            let dl2 = dl_lbl.clone();
-            let ul2 = ul_lbl.clone();
-            let bi2 = bi_lbl.clone();
-            let bo2 = bo_lbl.clone();
-            let st = state_timer.clone();
-
-            glib::spawn_future_local(async move {
-                let result = gio::spawn_blocking(move || {
-                    manager::read_stats(&cp_name2)
-                })
-                .await;
-
-                if let Ok(Some((bytes_in, bytes_out))) = result {
-                    let mut s = st.borrow_mut();
-                    if s.last_bytes_in > 0 {
-                        let dl_speed = (bytes_in.saturating_sub(s.last_bytes_in)) as f64 / (REFRESH_MS as f64 / 1000.0);
-                        let ul_speed = (bytes_out.saturating_sub(s.last_bytes_out)) as f64 / (REFRESH_MS as f64 / 1000.0);
-
-                        s.download_speeds.push(dl_speed);
-                        s.upload_speeds.push(ul_speed);
-                        if s.download_speeds.len() > MAX_SAMPLES {
-                            s.download_speeds.remove(0);
-                            s.upload_speeds.remove(0);
-                        }
-
-                        dl2.set_label(&format_speed(dl_speed));
-                        ul2.set_label(&format_speed(ul_speed));
-                    }
-                    s.last_bytes_in = bytes_in;
-                    s.last_bytes_out = bytes_out;
-                    s.total_bytes_in = bytes_in;
-                    s.total_bytes_out = bytes_out;
-
-                    bi2.set_label(&format_bytes(bytes_in));
-                    bo2.set_label(&format_bytes(bytes_out));
-
-                    da2.queue_draw();
-                }
-            });
-
-            glib::ControlFlow::Continue
-        });
+        timer_gen.set(timer_gen.get() + 1);
+        let my_gen = timer_gen.get();
+        start_panel_timer(
+            cp.name.clone(),
+            dl_speed_label, ul_speed_label, bytes_in_val, bytes_out_val,
+            drawing_area, vpn_ip_val, srv_ip_val, dur_lbl,
+            state, timer_gen, my_gen,
+        );
     }
 
     window
+}
+
+fn start_panel_timer(
+    profile_name: String,
+    dl_lbl: gtk::Label,
+    ul_lbl: gtk::Label,
+    bi_lbl: gtk::Label,
+    bo_lbl: gtk::Label,
+    da: gtk::DrawingArea,
+    vpn_ip_lbl: gtk::Label,
+    srv_ip_lbl: gtk::Label,
+    dur_lbl: gtk::Label,
+    state: Rc<RefCell<PanelState>>,
+    timer_gen: Rc<Cell<u64>>,
+    my_gen: u64,
+) {
+    let da_weak = da.downgrade();
+    glib::timeout_add_local(Duration::from_millis(REFRESH_MS as u64), move || {
+        if timer_gen.get() != my_gen {
+            return glib::ControlFlow::Break;
+        }
+        let Some(da) = da_weak.upgrade() else {
+            return glib::ControlFlow::Break;
+        };
+
+        let pname = profile_name.clone();
+        let da2 = da.clone();
+        let dl2 = dl_lbl.clone();
+        let ul2 = ul_lbl.clone();
+        let bi2 = bi_lbl.clone();
+        let bo2 = bo_lbl.clone();
+        let vip2 = vpn_ip_lbl.clone();
+        let sip2 = srv_ip_lbl.clone();
+        let dur2 = dur_lbl.clone();
+        let st = state.clone();
+
+        glib::spawn_future_local(async move {
+            let result = gio::spawn_blocking(move || manager::read_stats_and_info(&pname)).await;
+            if let Ok(Some((bytes_in, bytes_out, vpn_ip, server_ip))) = result {
+                let mut s = st.borrow_mut();
+                if s.connected_at.is_none() {
+                    s.connected_at = Some(Instant::now());
+                }
+                if s.last_bytes_in > 0 {
+                    let dt = REFRESH_MS as f64 / 1000.0;
+                    let dl_speed = bytes_in.saturating_sub(s.last_bytes_in) as f64 / dt;
+                    let ul_speed = bytes_out.saturating_sub(s.last_bytes_out) as f64 / dt;
+                    s.download_speeds.push(dl_speed);
+                    s.upload_speeds.push(ul_speed);
+                    if s.download_speeds.len() > MAX_SAMPLES {
+                        s.download_speeds.remove(0);
+                        s.upload_speeds.remove(0);
+                    }
+                    dl2.set_label(&format_speed(dl_speed));
+                    ul2.set_label(&format_speed(ul_speed));
+                }
+                s.last_bytes_in = bytes_in;
+                s.last_bytes_out = bytes_out;
+                s.total_bytes_in = bytes_in;
+                s.total_bytes_out = bytes_out;
+                bi2.set_label(&format_bytes(bytes_in));
+                bo2.set_label(&format_bytes(bytes_out));
+                if !vpn_ip.is_empty() { vip2.set_label(&vpn_ip); }
+                if !server_ip.is_empty() { sip2.set_label(&server_ip); }
+                if let Some(t) = s.connected_at {
+                    dur2.set_label(&format!("Connected for {}", format_duration(t.elapsed().as_secs())));
+                }
+                da2.queue_draw();
+            }
+        });
+
+        glib::ControlFlow::Continue
+    });
 }
 
 fn draw_graph(cr: &gtk::cairo::Context, width: f64, height: f64, downloads: &[f64], uploads: &[f64]) {

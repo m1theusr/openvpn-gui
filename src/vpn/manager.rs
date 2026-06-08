@@ -68,6 +68,9 @@ pub fn connect(profile_name: &str, config_path: &str, username: &str, password: 
         .arg("--management")
         .arg("127.0.0.1")
         .arg(port.to_string())
+        .arg("--setenv")
+        .arg("PATH")
+        .arg("/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
         .output()
         .context("Failed to execute openvpn")?;
 
@@ -134,6 +137,7 @@ pub fn is_connected(profile_name: &str) -> bool {
     std::path::Path::new(&proc_path).exists()
 }
 
+#[allow(dead_code)]
 pub fn read_stats(profile_name: &str) -> Option<(u64, u64)> {
     let port_file = mgmt_port_path(profile_name);
     let port_str = fs::read_to_string(&port_file).ok()?;
@@ -187,6 +191,94 @@ pub fn disconnect_all() {
             }
         }
     }
+}
+
+pub fn read_stats_and_info(profile_name: &str) -> Option<(u64, u64, String, String)> {
+    let port_file = mgmt_port_path(profile_name);
+    let port_str = fs::read_to_string(&port_file).ok()?;
+    let port: u16 = port_str.trim().parse().ok()?;
+
+    let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().ok()?;
+    let mut stream = TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(300)).ok()?;
+    stream.set_read_timeout(Some(std::time::Duration::from_millis(500))).ok();
+
+    let mut buf = [0u8; 8192];
+    let _ = stream.read(&mut buf);
+
+    stream.write_all(b"load-stats\nstate\n").ok()?;
+    stream.flush().ok()?;
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let n = stream.read(&mut buf).ok()?;
+    let response = String::from_utf8_lossy(&buf[..n]);
+
+    let mut bytes_in: Option<u64> = None;
+    let mut bytes_out: Option<u64> = None;
+    let mut vpn_ip = String::new();
+    let mut server_ip = String::new();
+
+    for line in response.lines() {
+        if line.starts_with("SUCCESS:") {
+            if let Some(bi) = line.split(',')
+                .find(|s| s.contains("bytesin="))
+                .and_then(|s| s.split('=').last())
+                .and_then(|v| v.trim().parse::<u64>().ok())
+            {
+                bytes_in = Some(bi);
+            }
+            if let Some(bo) = line.split(',')
+                .find(|s| s.contains("bytesout="))
+                .and_then(|s| s.split('=').last())
+                .and_then(|v| v.trim().parse::<u64>().ok())
+            {
+                bytes_out = Some(bo);
+            }
+        }
+        let parts: Vec<&str> = line.split(',').collect();
+        if parts.len() >= 5 && parts.get(1) == Some(&"CONNECTED") {
+            let ip = parts[3].to_string();
+            let srv = parts[4].to_string();
+            if !ip.is_empty() {
+                vpn_ip = ip;
+                server_ip = srv;
+            }
+        }
+    }
+
+    Some((bytes_in?, bytes_out?, vpn_ip, server_ip))
+}
+
+#[allow(dead_code)]
+pub fn read_connection_info(profile_name: &str) -> Option<(String, String)> {
+    let port_file = mgmt_port_path(profile_name);
+    let port_str = fs::read_to_string(&port_file).ok()?;
+    let port: u16 = port_str.trim().parse().ok()?;
+
+    let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().ok()?;
+    let mut stream = TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(300)).ok()?;
+    stream.set_read_timeout(Some(std::time::Duration::from_millis(500))).ok();
+
+    let mut buf = [0u8; 4096];
+    let _ = stream.read(&mut buf);
+
+    stream.write_all(b"state\n").ok()?;
+    stream.flush().ok()?;
+    std::thread::sleep(std::time::Duration::from_millis(80));
+
+    let n = stream.read(&mut buf).ok()?;
+    let response = String::from_utf8_lossy(&buf[..n]);
+
+    for line in response.lines() {
+        let parts: Vec<&str> = line.split(',').collect();
+        if parts.len() >= 5 && parts.get(1) == Some(&"CONNECTED") {
+            let vpn_ip = parts[3].to_string();
+            let server_ip = parts[4].to_string();
+            if !vpn_ip.is_empty() && !server_ip.is_empty() {
+                return Some((vpn_ip, server_ip));
+            }
+        }
+    }
+    None
 }
 
 #[allow(dead_code)]
