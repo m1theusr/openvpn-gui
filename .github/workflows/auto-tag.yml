@@ -16,6 +16,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Ler versão do Cargo.toml
         id: version
@@ -37,8 +38,11 @@ jobs:
 
       - name: Criar e publicar tag
         if: steps.tag_check.outputs.exists == 'false'
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag "${{ steps.version.outputs.version }}"
-          git push origin "${{ steps.version.outputs.version }}"
+          git push "https://x-access-token:${RELEASE_TOKEN}@github.com/${{ github.repository }}.git" \
+            "${{ steps.version.outputs.version }}"
